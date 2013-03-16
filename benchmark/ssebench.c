@@ -2,25 +2,34 @@
 #include <stdlib.h>
 #include <time.h>
 #include <pthread.h>
+#include <sys/time.h>
 
 #define USE_AVX
+#define LONG long long
 
 #ifdef USE_AVX
 #define ADD_COUNT 8
-float a[8] asm ("a")__attribute__((aligned(32))) ={0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0};
-float b[8] asm ("b")__attribute__((aligned(32))) =
-	{0.000001,0.000002,0.000003,0.000004,0.000005,0.000006,0.000007,0.000008};
-
 #else
 #define ADD_COUNT 4
-float a[4] asm ("a")__attribute__((aligned(16))) ={0.0,0.0,0.0,0.0};
-float b[4] asm ("b")__attribute__((aligned(16))) ={0.000001,0.000002,0.000003,0.000004};
 #endif
 
-long num = 400 * 1000 * 1000;
+float a[8] asm ("a")__attribute__((aligned(16))) ={0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0};
+float b[8] asm ("b")__attribute__((aligned(16))) =
+	{0.000001,0.000002,0.000003,0.000004,0.000005,0.000006,0.000007,0.000008};
+LONG num = 500 * 1000 * 1000;
+
+
+double getTimeStamp()
+{
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	return ((double)(tv.tv_sec) + (double)(tv.tv_usec) * 0.000001);
+}
+
 void loop_vaddps()
 {
-	long i;
+	LONG i;
+	float c[8] __attribute__((aligned(32))) ={0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0};
 
 	asm("VMOVAPS a, %ymm0");
 	asm("VMOVAPS b, %ymm1");
@@ -31,14 +40,14 @@ void loop_vaddps()
 		asm("VADDPS %ymm1, %ymm0, %ymm0");
 		asm("VADDPS %ymm1, %ymm0, %ymm0");
 	}
-	asm("VMOVAPS %ymm0, a");
+	asm("VMOVUPS %%ymm0, (%0)"::"r"(&c));
 	asm("VMOVAPS %ymm1, b");
-	//printf("%f %f %f %f %f %f %f %f\n", a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]);
-	//printf("%f %f %f %f %f %f %f %f\n", b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]);
+	//printf("%f %f %f %f %f %f %f %f\n", c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]);
 }
 void loop_addps()
 {
-	long i;
+	LONG i;
+	float c[4] __attribute__((aligned(16))) ={0.0,0.0,0.0,0.0};
 
 	asm("MOVAPS a, %xmm0");
 	asm("MOVAPS b, %xmm1");
@@ -49,23 +58,26 @@ void loop_addps()
 		asm("ADDPS %xmm1, %xmm0");
 		asm("ADDPS %xmm1, %xmm0");
 	}
-	asm("MOVAPS %xmm0, a");
+	asm("MOVUPS %%xmm0, (%0)"::"r"(&c));
 	asm("MOVAPS %xmm1, b");
-	//printf("%f %f %f %f %f %f %f %f\n", a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]);
-	//printf("%f %f %f %f %f %f %f %f\n", b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]);
+	printf("%f %f %f %f\n", c[0], c[1], c[2], c[3]);
 }
 
 
 int main()
 {
-	int thread_num = 4;
-	int i;
+	printf("int => %d\n", sizeof(int));
+	printf("long => %d\n", sizeof(long));
+	printf("unsigned long => %d\n", sizeof(unsigned long));
+	printf("long long => %d\n", sizeof(long long));
+	LONG thread_num = 4;
+	LONG count_on_thread = 0, i;
 	double elpase;
-	clock_t t0, t1;
+	double start,stop;
 	pthread_t* thread_list;
 	thread_list = (pthread_t*)malloc(sizeof(pthread_t) * thread_num);
 
-    t0 = clock();
+	start = getTimeStamp();
 	for(i = 0;i < thread_num;i++) {
 
 #ifdef USE_AVX
@@ -78,12 +90,13 @@ int main()
 		pthread_join(thread_list[i], NULL);
 	}
 
-    t1 = clock();
-    elpase = (t1 - t0)/(double)CLOCKS_PER_SEC;
-    printf ( "time :%f\n", elpase);
-    printf ( "%.6f flops\n", num / elpase * 5 * ADD_COUNT * thread_num);
-    printf ( "num = %d\n", num);
-    free(thread_list);
+	stop = getTimeStamp();
+	elpase = stop - start;
+	count_on_thread = num * 5 * ADD_COUNT;
+	printf ( "time :%.3f\n", elpase);
+	printf ( "%.3f Mflops\n", count_on_thread / elpase * thread_num / 1000 / 1000);
+	printf ( "num = %lld\n", count_on_thread);
+	free(thread_list);
 	return 0;
 }
 
